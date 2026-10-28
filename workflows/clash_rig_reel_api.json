@@ -1,0 +1,41 @@
+{
+ "2": {
+  "class_type": "ClashReel",
+  "inputs": {
+   "prefix": "clash_rig/shot",
+   "count": 8,
+   "trim_frames": 6,
+   "fps": 24
+  },
+  "_meta": {
+   "title": "Clash Reel"
+  }
+ },
+ "3": {
+  "class_type": "PreviewAny",
+  "inputs": {
+   "source": [
+    "2",
+    1
+   ]
+  },
+  "_meta": {
+   "title": "Shots used"
+  }
+ },
+ "4": {
+  "class_type": "SaveVideo",
+  "inputs": {
+   "video": [
+    "2",
+    0
+   ],
+   "filename_prefix": "clash_rig/reel",
+   "format": "mp4",
+   "codec": "h264"
+  },
+  "_meta": {
+   "title": "Save reel"
+  }
+ }
+}

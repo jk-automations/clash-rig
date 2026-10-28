@@ -1,0 +1,21 @@
+[project]
+name = "comfyui-clash-rig"
+version = "1.0.0"
+description = "Fight styles, camera rigs, arenas and impact FX for fight scenes in ComfyUI + LTX-2.5"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "numpy",
+    "pillow",
+]
+
+[project.urls]
+Homepage = "https://github.com/jk-automations/clash-rig"
+Repository = "https://github.com/jk-automations/clash-rig"
+
+[tool.comfy]
+PublisherId = "jk"
+DisplayName = "Clash Rig"
+requires-comfyui = ">=0.35.0"
