@@ -122,11 +122,12 @@ Every ComfyUI submit is saved as `<name>.graph.json` next to its output; the app
 ## Hardware
 
 Developed on a Mac Studio (M3 Ultra, unified memory) with ComfyUI started as `--bf16-unet --cpu-vae`. Measured there: **LTX-2.5 22B distilled about 4.3 min per 3 s clip at 768x448** (two-stage, with audio), **a Qwen Image Edit plate about 1 min**.
-The full model set is about 150 GB on disk, so this needs a machine with tens of GB of GPU or unified memory. Not tested on CUDA by us. An 8-shot fight is roughly 35-40 minutes of LTX time plus plates.
+The full model set is about 150 GB on disk, so this needs a machine with tens of GB of GPU or unified memory. Not tested on CUDA by us. An 8-shot fight is roughly 35-40 minutes of LTX time plus plates. The runner merges all plates into one ComfyUI prompt and all LTX clips into another (`comfy.run_many`), so renders play well with a shared GPU queue: two turns per fight instead of one per render. The saved `*.graph.json` of a merged render is the merged graph.
 
 ## Honest limitations
 
-- Two fighters in one frame is hard for every image model. Qwen Edit usually keeps faces, hair and outfit colours, but limbs tangle in close grapples and a fighter occasionally takes on the rival's colours.
+- The open `local` plate path passes both fighter sheets to Qwen Image Edit in one edit. That is untested for fusing: in Velocity Rig the same trick merged two vehicles into one (so Velocity passes only the hero), and two people may or may not fare better. Check the contact sheet with `--plates-only` before spending LTX time.
+- Two fighters in one frame is hard for every image model; limbs tangle in close grapples.
 - Image-to-video drifts toward slow motion; the prompts and negatives push against it, and the replay and bullet-time rigs deliberately allow it.
 - The hero image above is from the optional Codex backend, not the open one; the open-weights contact sheet and reel are still to be added where marked.
 - Sound is whatever LTX-2.5 generates for the prompt; impacts are plausible, not designed.

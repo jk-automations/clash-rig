@@ -78,10 +78,11 @@ def apply_fx_to_video(raw_mp4: Path, dest_mp4: Path, fx_params: dict, fps: float
     return dest_mp4
 
 
-def make_plate(shot, i, out: Path, backend: str, refs: list[Path], worker: str | None) -> Path:
+def make_plate(shot, i, out: Path, backend: str, refs: list[Path], worker: str | None, defer: list | None = None) -> Path:
     dest = out / "plates" / f"{i + 1:02d}.png"
     if dest.exists():
-        log(f"plate {i + 1:02d} {shot['rig']} / {shot['beat']} cached", True)
+        if defer is None:
+            log(f"plate {i + 1:02d} {shot['rig']} / {shot['beat']} ready", True)
         return dest
     t = time.time()
     if backend == "codex":
@@ -93,21 +94,25 @@ def make_plate(shot, i, out: Path, backend: str, refs: list[Path], worker: str |
               "colors, and keep the two fighters clearly different from each other. The camera and scene are: " + shot["plate_prompt"])
     g = qwen_edit(prompt, len(refs), seed=shot["seed"], width=shot["plate_width"], height=shot["plate_height"],
                   negative=shot["plate_negative"], prefix="clash_rig/plate")
-    comfy.run(g, {"save": dest}, url=worker, label=f"plate {i + 1}", inputs={(f"img{n}", "image"): r for n, r in enumerate(refs, 1)})
-    log(f"plate {i + 1:02d} {shot['rig']} / {shot['beat']} (Qwen Image Edit) in {time.time() - t:.0f}s", True)
+    comfy.run_or_defer(defer, g, {"save": dest}, url=worker, label=f"plate {i + 1}", inputs={(f"img{n}", "image"): r for n, r in enumerate(refs, 1)})
+    if defer is None:
+        log(f"plate {i + 1:02d} {shot['rig']} / {shot['beat']} (Qwen Image Edit) in {time.time() - t:.0f}s", True)
     return dest
 
 
-def make_clip(shot, i, plate: Path, out: Path, worker: str | None) -> Path:
+def make_clip(shot, i, plate: Path, out: Path, worker: str | None, defer: list | None = None) -> Path:
     dest, raw = out / "clips" / f"{i + 1:02d}_shot.mp4", out / "clips" / f"{i + 1:02d}_raw.mp4"
     if dest.exists():
-        log(f"clip  {i + 1:02d} {shot['rig']} / {shot['beat']} cached", True)
+        if defer is None:
+            log(f"clip  {i + 1:02d} {shot['rig']} / {shot['beat']} cached", True)
         return dest
     t = time.time()
     if not raw.exists():
         g = ltx_i2v(shot["motion_prompt"], width=shot["width"], height=shot["height"], seconds=int(shot["seconds"]),
                     fps=int(shot["fps"]), seed=shot["seed"], negative=shot["video_negative"], prefix="clash_rig/raw", audio=True)
-        comfy.run(g, {"save": raw}, url=worker, label=f"shot {i + 1} {shot['rig']}", inputs={("img1", "image"): plate})
+        comfy.run_or_defer(defer, g, {"save": raw}, url=worker, label=f"shot {i + 1} {shot['rig']}", inputs={("img1", "image"): plate})
+        if defer is not None:
+            return dest
     apply_fx_to_video(raw, dest, shot["fx"], fps=shot["fps"], seed=shot["seed"])
     log(f"clip  {i + 1:02d} {shot['rig']} / {shot['beat']} (LTX-2.5 + Clash FX) in {time.time() - t:.0f}s", True)
     return dest
@@ -198,15 +203,28 @@ def main(argv=None):
     with ThreadPoolExecutor(len(wanted)) as pool:
         refs = [f.result() for f in [pool.submit(make_ref, n, *w) for n, w in enumerate(wanted)]]
 
+    if a.plate_backend == "local":  # all plates in one ComfyUI prompt
+        batch: list = []
+        for i, sh in enumerate(shots):
+            make_plate(sh, i, out, a.plate_backend, refs, a.comfy, defer=batch)
+        if batch:
+            log(f"rendering {len(batch)} plates in one ComfyUI prompt")
+            comfy.run_many(batch, chunk=len(batch))
     with ThreadPoolExecutor(3 if a.plate_backend == "codex" else 1) as pool:
-        plates = [f.result() for f in [pool.submit(make_plate, s, i, out, a.plate_backend, refs, a.comfy) for i, s in enumerate(shots)]]
+        plates = [f.result() for f in [pool.submit(make_plate, sh, i, out, a.plate_backend, refs, a.comfy) for i, sh in enumerate(shots)]]
     sheet = out / "plates" / "contact_sheet.jpg"
     build_contact_sheet(plates, shots, refs, sheet)
     if a.plates_only:
         log(f"plates_only complete: {sheet}")
         return
 
-    clips = [make_clip(s, i, p, out, a.comfy) for i, (s, p) in enumerate(zip(shots, plates))]
+    batch = []
+    for i, (sh, p) in enumerate(zip(shots, plates)):
+        make_clip(sh, i, p, out, a.comfy, defer=batch)
+    if batch:  # the whole reel in one ComfyUI prompt
+        log(f"rendering {len(batch)} LTX clips in one ComfyUI prompt")
+        comfy.run_many(batch, chunk=len(batch))
+    clips = [make_clip(sh, i, p, out, a.comfy) for i, (sh, p) in enumerate(zip(shots, plates))]
     reel = out / "reel.mp4"
     reel_lib.assemble(clips, reel, shots[0]["fps"], TRIM_FRAMES)
     log(f"reel: {reel} ({len(clips)} shots)", True)
