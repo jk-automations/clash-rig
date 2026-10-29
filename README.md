@@ -9,7 +9,10 @@
 ![Clash Rig plates from the optional Codex backend: eight plates of one fight](docs/hero.jpg)
 
 *The same matchup with the optional Codex plate backend (`--plate-backend codex`), eight shots.*
-<!-- RENDER: clash-rig anime-sky local reel.mp4 -->
+
+![Clash Rig anime power fight on open weights: aura blast, teleport flurry, power-up, crater slam](docs/anime_local.gif)
+
+*The open-weights plates above, animated by LTX-2.5 with Impact FX (`--plate-backend local`, 4 shots).*
 
 ## What it rebuilds from Higgsfield
 
