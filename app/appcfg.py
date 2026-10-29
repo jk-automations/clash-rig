@@ -53,6 +53,7 @@ CONFIG = {
         {"id": "light", "label": "Light", "type": "select", "options": "lights", "default": "arena default", "flag": "--light", "group": "Look"},
         {"id": "aspect", "label": "Aspect", "type": "select", "options": "aspects", "default": "16:9 landscape", "flag": "--aspect", "group": "Look"},
         {"id": "intensity", "label": "Impact intensity", "type": "range", "min": 0, "max": 1, "step": 0.05, "default": 0.85, "flag": "--intensity", "group": "Look"},
+        {"id": "fx_strength", "label": "Impact FX strength", "type": "range", "min": 0, "max": 1, "step": 0.05, "default": 0.45, "flag": "--fx-strength", "group": "Look"},
         {"id": "seed", "label": "Seed", "type": "number", "min": 0, "max": 2147483647, "default": 7, "flag": "--seed", "group": "Look"},
         {"id": "plate_backend", "label": "Plate backend", "type": "select", "options": [{"v": "local", "l": "local: Z-Image Turbo + Qwen Image Edit (open weights)"}, {"v": "codex", "l": "codex: optional closed model, needs the Codex CLI"}],
          "default": "local", "flag": "--plate-backend", "group": "Look", "wide": True},
@@ -60,6 +61,7 @@ CONFIG = {
         {"id": "rival", "label": "Rival fighter", "type": "textarea", "default": "", "flag": "--rival", "group": "Fighters", "wide": True, "placeholder": "blank = default rival, 'none' = solo"},
         {"id": "arena_custom", "label": "Custom arena", "type": "text", "default": "", "flag": "--arena-custom", "group": "Fighters", "wide": True},
         {"id": "extra", "label": "Extra detail", "type": "text", "default": "", "flag": "--extra", "group": "Fighters", "wide": True},
+        {"id": "drop", "label": "Leave shots out of the reel", "type": "text", "default": "", "placeholder": "e.g. 4", "flag": "--drop", "group": "Run"},
         {"id": "plates_only", "label": "Plates only", "type": "toggle", "default": False, "flag": "--plates-only", "group": "Run", "help": "Stop after the plates and contact sheet (about 1 min per plate on an M3 Ultra)."},
     ],
 }

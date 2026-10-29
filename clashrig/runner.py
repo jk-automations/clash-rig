@@ -55,6 +55,14 @@ def log(msg, step=False):
             comfy.emit("step", msg=msg)
 
 
+FX_STRENGTH = 0.45  # full-strength flashes + speed lines on every shot wash the frames out
+
+
+def scale_fx(fx: dict, k: float) -> dict:
+    """Scale the overlay effects; camera shake and speed ramp keep their rig values."""
+    return {n: (v if n in ("shake", "ramp") else round(v * k, 3)) for n, v in fx.items()}
+
+
 def apply_fx_to_video(raw_mp4: Path, dest_mp4: Path, fx_params: dict, fps: float, seed: int) -> Path:
     """Decode raw_mp4, apply Clash FX (hit flashes, shake, chroma, speed lines, impact frames, ramp), mux the LTX audio back."""
     ffmpeg = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
@@ -113,7 +121,7 @@ def make_clip(shot, i, plate: Path, out: Path, worker: str | None, defer: list |
         comfy.run_or_defer(defer, g, {"save": raw}, url=worker, label=f"shot {i + 1} {shot['rig']}", inputs={("img1", "image"): plate})
         if defer is not None:
             return dest
-    apply_fx_to_video(raw, dest, shot["fx"], fps=shot["fps"], seed=shot["seed"])
+    apply_fx_to_video(raw, dest, scale_fx(shot["fx"], FX_STRENGTH), fps=shot["fps"], seed=shot["seed"])
     log(f"clip  {i + 1:02d} {shot['rig']} / {shot['beat']} (LTX-2.5 + Clash FX) in {time.time() - t:.0f}s", True)
     return dest
 
@@ -153,6 +161,8 @@ def main(argv=None):
     ap.add_argument("--beat", default="auto")
     ap.add_argument("--light", default="arena default")
     ap.add_argument("--intensity", type=float, default=0.85)
+    ap.add_argument("--fx-strength", type=float, default=FX_STRENGTH, help="Impact FX overlay strength (0-1)")
+    ap.add_argument("--drop", default="", help="comma list of shot numbers to leave out of the reel, e.g. 4")
     ap.add_argument("--seconds", type=float, default=0.0, help="per-shot seconds (0 = the rig's own 2-4 s)")
     ap.add_argument("--extra", default="")
     ap.add_argument("--aspect", default="16:9 landscape")
@@ -218,6 +228,7 @@ def main(argv=None):
         log(f"plates_only complete: {sheet}")
         return
 
+    globals()["FX_STRENGTH"] = a.fx_strength
     batch = []
     for i, (sh, p) in enumerate(zip(shots, plates)):
         make_clip(sh, i, p, out, a.comfy, defer=batch)
@@ -225,6 +236,8 @@ def main(argv=None):
         log(f"rendering {len(batch)} LTX clips in one ComfyUI prompt")
         comfy.run_many(batch, chunk=len(batch))
     clips = [make_clip(sh, i, p, out, a.comfy) for i, (sh, p) in enumerate(zip(shots, plates))]
+    dropped = {int(x) for x in a.drop.split(",") if x.strip()}
+    clips = [c for i, c in enumerate(clips, 1) if i not in dropped]
     reel = out / "reel.mp4"
     reel_lib.assemble(clips, reel, shots[0]["fps"], TRIM_FRAMES)
     log(f"reel: {reel} ({len(clips)} shots)", True)
