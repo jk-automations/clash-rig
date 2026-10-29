@@ -2,10 +2,13 @@
 
 **Fight-scene cinematography for LTX-2.5: six fight styles, eleven arenas, fifteen camera rigs and hit-by-hit impact FX, with two identity refs that keep both fighters the same in every shot.**
 
-![Clash Rig plates: two reference sheets and eight plates of one fight](docs/hero.jpg)
+![Clash Rig plates on open weights: two fighter sheets and four plates of one fight](docs/local_plates.jpg)
 
-*Two fighter sheets (top) and the eight plates of one `anime_power` fight. These plates were made with the optional Codex plate backend (`--plate-backend codex`).*
-<!-- RENDER: clash-rig local plates contact_sheet.jpg (Z-Image Turbo sheets + Qwen Image Edit plates, replaces the Codex sheet above) -->
+*The default open-weights path: Z-Image Turbo draws the two fighter sheets (top), and Qwen Image Edit 2511 puts both fighters into every camera rig of an `anime_power` fight. Same designs, colors and auras in every shot.*
+
+![Clash Rig plates from the optional Codex backend: eight plates of one fight](docs/hero.jpg)
+
+*The same matchup with the optional Codex plate backend (`--plate-backend codex`), eight shots.*
 <!-- RENDER: clash-rig anime-sky local reel.mp4 -->
 
 ## What it rebuilds from Higgsfield
