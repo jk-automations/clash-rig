@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 from clashrig import comfy
 from clashrig.graphs.edit import qwen_edit
 from clashrig.graphs.still import text_to_image
-from clashrig.graphs.video import ltx_i2v
+from clashrig.graphs.video import ltx_flf, ltx_i2v
 
 ROOT = Path(__file__).resolve().parents[1]
 PACK = ROOT / "custom_nodes" / "comfyui-clash-rig"
@@ -56,6 +56,7 @@ def log(msg, step=False):
 
 
 FX_STRENGTH = 0.45  # full-strength flashes + speed lines on every shot wash the frames out
+END_STRENGTH = 1.0  # keyframe mode: end-frame guide scale
 
 
 def scale_fx(fx: dict, k: float) -> dict:
@@ -93,6 +94,20 @@ def make_plate(shot, i, out: Path, backend: str, refs: list[Path], worker: str |
             log(f"plate {i + 1:02d} {shot['rig']} / {shot['beat']} ready", True)
         return dest
     t = time.time()
+    if shot.get("compose_prompt") and backend == "codex":
+        # Keyframe start frame from a closed image model, locked to the fighter refs (Clash Anime's sharper look).
+        lead = ("Image 1 is the hero" + ("; image 2 is the rival" if len(refs) > 1 else "") + ". Keep each fighter's exact face, hair, "
+                "body, outfit and colors. One single frame, no panels, no text. ")
+        plate_gen.generate_plate(lead + shot["compose_prompt"], dest, width=shot["plate_width"], height=shot["plate_height"], refs=refs)
+        log(f"plate {i + 1:02d} {shot['rig']} start frame via Codex in {time.time() - t:.0f}s", True)
+        return dest
+    if shot.get("compose_prompt"):  # keyframe start frame: Z-Image follows pose and camera better than Qwen Edit on the ref sheets
+        g = text_to_image(shot["compose_prompt"], width=shot["plate_width"], height=shot["plate_height"], seed=shot["seed"],
+                          prefix="clash_rig/start")
+        comfy.run_or_defer(defer, g, {"10": dest}, url=worker, label=f"start plate {i + 1}")
+        if defer is None:
+            log(f"plate {i + 1:02d} {shot['rig']} start frame (Z-Image Turbo) in {time.time() - t:.0f}s", True)
+        return dest
     if backend == "codex":
         plate_gen.generate_plate(shot["plate_prompt"], dest, width=shot["plate_width"], height=shot["plate_height"], refs=refs)
         log(f"plate {i + 1:02d} ({shot['rig']} / {shot['beat']}) via Codex in {time.time() - t:.0f}s", True)
@@ -108,6 +123,24 @@ def make_plate(shot, i, out: Path, backend: str, refs: list[Path], worker: str |
     return dest
 
 
+def end_plate_path(out: Path, i: int) -> Path:
+    return out / "plates" / f"{i + 1:02d}_end.png"
+
+
+def make_end_plate(shot, i, out: Path, start: Path, worker: str | None) -> Path:
+    """Keyframe mode: the same shot a split second later, one edit command on the start plate so camera, scene and fighters stay put."""
+    dest = end_plate_path(out, i)
+    if dest.exists():
+        log(f"end   {i + 1:02d} {shot['rig']} / {shot['beat']} ready", True)
+        return dest
+    t = time.time()
+    g = qwen_edit(shot["end_prompt"], 1, seed=shot["seed"] + 1, width=shot["plate_width"], height=shot["plate_height"],
+                  negative=shot["plate_negative"], prefix="clash_rig/end")
+    comfy.run(g, {"save": dest}, url=worker, label=f"end plate {i + 1}", inputs={("img1", "image"): start})
+    log(f"end   {i + 1:02d} {shot['rig']} (Qwen Image Edit) in {time.time() - t:.0f}s", True)
+    return dest
+
+
 def make_clip(shot, i, plate: Path, out: Path, worker: str | None, defer: list | None = None) -> Path:
     dest, raw = out / "clips" / f"{i + 1:02d}_shot.mp4", out / "clips" / f"{i + 1:02d}_raw.mp4"
     if dest.exists():
@@ -116,9 +149,15 @@ def make_clip(shot, i, plate: Path, out: Path, worker: str | None, defer: list |
         return dest
     t = time.time()
     if not raw.exists():
-        g = ltx_i2v(shot["motion_prompt"], width=shot["width"], height=shot["height"], seconds=int(shot["seconds"]),
-                    fps=int(shot["fps"]), seed=shot["seed"], negative=shot["video_negative"], prefix="clash_rig/raw", audio=True)
-        comfy.run_or_defer(defer, g, {"save": raw}, url=worker, label=f"shot {i + 1} {shot['rig']}", inputs={("img1", "image"): plate})
+        kw = dict(width=shot["width"], height=shot["height"], seconds=int(shot["seconds"]), fps=int(shot["fps"]), seed=shot["seed"],
+                  negative=shot["video_negative"], prefix="clash_rig/raw", audio=True)
+        inputs = {("img1", "image"): plate}
+        if shot.get("end_prompt"):  # keyframe mode: LTX first + last frame
+            g = ltx_flf(shot["motion_prompt"], end_strength=END_STRENGTH, **kw)
+            inputs[("img2", "image")] = end_plate_path(out, i)
+        else:
+            g = ltx_i2v(shot["motion_prompt"], **kw)
+        comfy.run_or_defer(defer, g, {"save": raw}, url=worker, label=f"shot {i + 1} {shot['rig']}", inputs=inputs)
         if defer is not None:
             return dest
     apply_fx_to_video(raw, dest, scale_fx(shot["fx"], FX_STRENGTH), fps=shot["fps"], seed=shot["seed"])
@@ -145,12 +184,17 @@ def build_contact_sheet(plates: list[Path], shots: list[dict], refs: list[Path],
     sheet.save(dest, quality=92)
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+def main(argv=None, line=None, doc=None):
+    """line=None is the full Clash Rig CLI; line="anime" / "real" is the Clash Anime / Clash Real runner (own fight styles,
+    looks and defaults, keyframe mode on, six shots)."""
+    ln = rigs.LINES[line] if line else None
+    ap = argparse.ArgumentParser(description=doc or __doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--shots", type=int, default=8)
-    ap.add_argument("--style-fight", default="anime_power", choices=list(rigs.FIGHT_STYLES), help="boxing, muay_thai, mma, bjj, kung_fu_wuxia, anime_power")
-    ap.add_argument("--style", default="auto", choices=["auto"] + list(rigs.STYLES), help="visual style; auto = the fight style's own")
+    ap.add_argument("--shots", type=int, default=6 if ln else 8)
+    fights = ln["fight_styles"] if ln else list(rigs.FIGHT_STYLES)
+    ap.add_argument("--style-fight", default=ln["fight_style"] if ln else "anime_power", choices=fights, help=", ".join(fights))
+    ap.add_argument("--style", default="auto", choices=["auto"] + (ln["styles"] if ln else list(rigs.STYLES)),
+                    help="visual style; auto = " + (ln["style"] if ln else "the fight style's own"))
     ap.add_argument("--hero", default="")
     ap.add_argument("--rival", default="")
     ap.add_argument("--hero-photo", help="a photo of you (or anyone): becomes the hero identity ref")
@@ -169,9 +213,21 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--plate-backend", default="local", choices=["local", "codex"], help="local = open weights (default); codex = optional closed model")
     ap.add_argument("--plates-only", action="store_true")
+    ap.add_argument("--starts-only", action="store_true", help="keyframe mode: make the refs and start frames only, then stop")
+    ap.add_argument("--end-strength", type=float, default=END_STRENGTH, help="keyframe mode: end-frame guide scale (lower = softer target)")
+    ap.add_argument("--reseed", default="", help="comma list of shot numbers whose clips get a new seed, e.g. 1,4 (delete their clips first)")
+    kf_help = "one move per shot between a start and an end plate (LTX first+last frame)"
+    if ln:
+        ap.add_argument("--keyframes", action=argparse.BooleanOptionalAction, default=True, help=kf_help)
+    else:
+        ap.add_argument("--keyframes", action="store_true", help=kf_help)
     ap.add_argument("--comfy", default=None, help="Comfy API v2 base URL (default: $COMFY_BASE_URL or http://127.0.0.1:8195)")
     ap.add_argument("--dry-run", action="store_true", help="build and save the real graphs, write placeholder outputs, contact no server")
     a = ap.parse_args(argv)
+    if ln:
+        a.style = rigs.line_style(line, a.style_fight, a.style)
+        if a.end_strength == END_STRENGTH and a.keyframes:
+            a.end_strength = 0.5  # soft end target: full strength holds the start frame and snaps to the end
     if a.dry_run:
         comfy.DRY = True
         a.plate_backend = "local"
@@ -187,10 +243,13 @@ def main(argv=None):
 
     shots = [rigs.compose(hero=hero, rival=rival, arena=a.arena, arena_custom=a.arena_custom, fight_style=a.style_fight, style=a.style,
                           rig=rig_list[i % len(rig_list)], beat=a.beat, light=a.light, intensity=a.intensity, aspect=a.aspect,
-                          seconds=a.seconds, extra=a.extra, shot_index=i, seed=a.seed) for i in range(a.shots)]
+                          seconds=a.seconds, extra=a.extra, shot_index=i, seed=a.seed, keyframes=a.keyframes) for i in range(a.shots)]
+    for n in (int(x) for x in a.reseed.split(",") if x.strip()):
+        shots[n - 1]["seed"] += 500
+    globals()["END_STRENGTH"] = a.end_strength
     (out / "shots.json").write_text(json.dumps(shots, indent=1))
     wanted = [("hero", hero_photo, shots[0]["hero"])] + ([("rival", rival_photo, shots[0]["rival"])] if shots[0]["rival"] else [])
-    comfy.emit("plan", total=len(wanted) + a.shots * (1 if a.plates_only else 2) + (0 if a.plates_only else 1))
+    comfy.emit("plan", total=len(wanted) + a.shots * ((1 if a.plates_only else 2) + (1 if a.keyframes else 0)) + (0 if a.plates_only else 1))
     log(f"{a.shots} shots: " + ", ".join(f"{s['rig']} ({s['beat']})" for s in shots))
     style_label = rigs.STYLES[shots[0]["style"]]["label"]
 
@@ -223,7 +282,16 @@ def main(argv=None):
     with ThreadPoolExecutor(3 if a.plate_backend == "codex" else 1) as pool:
         plates = [f.result() for f in [pool.submit(make_plate, sh, i, out, a.plate_backend, refs, a.comfy) for i, sh in enumerate(shots)]]
     sheet = out / "plates" / "contact_sheet.jpg"
-    build_contact_sheet(plates, shots, refs, sheet)
+    if a.starts_only:
+        build_contact_sheet(plates, shots, refs, sheet)
+        log(f"starts_only complete: {sheet}")
+        return
+    if a.keyframes:
+        ends = [make_end_plate(sh, i, out, p, a.comfy) for i, (sh, p) in enumerate(zip(shots, plates))]
+        pairs = [x for p, e, sh in zip(plates, ends, shots) for x in ((p, {"label": sh["label"] + "  START"}), (e, {"label": sh["label"] + "  END"}))]
+        build_contact_sheet([p for p, _ in pairs], [sh for _, sh in pairs], refs, sheet)
+    else:
+        build_contact_sheet(plates, shots, refs, sheet)
     if a.plates_only:
         log(f"plates_only complete: {sheet}")
         return
