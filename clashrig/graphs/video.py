@@ -137,11 +137,12 @@ def _ltx_flf_single(prompt, *, width=768, height=448, seconds=3, fps=24, seed=0,
 
 
 def ltx_flf(prompt, *, width=768, height=448, seconds=3, fps=24, seed=0, audio=True, strength=1.0,
-            negative=None, prefix="clip", single_pass=False):
+            negative=None, prefix="clip", single_pass=False, end_strength=None):
     """LTX-2.5 first+last frame to video, two-stage like ltx_i2v: half-res pass with start/end frame
     guides, x2 latent upscale, refine pass with the guides re-added at full res.
     Inputs: LoadImage "img1" (start frame), "img2" (end frame); both cover-cropped to size.
-    Output node: "save" (SaveVideo mp4). strength scales the 0.7 guide strength of both frames.
+    Output node: "save" (SaveVideo mp4). strength scales the 0.7 guide strength of both frames; end_strength, if
+    given, scales the end frame's alone (a soft end target: at full strength LTX tends to hold the start and snap to the end).
     single_pass=True gives the official template's single full-res pass instead."""
     if single_pass:
         return _ltx_flf_single(prompt, width=width, height=height, seconds=seconds, fps=fps, seed=seed,
@@ -149,6 +150,7 @@ def ltx_flf(prompt, *, width=768, height=448, seconds=3, fps=24, seed=0, audio=T
     w, h = _round(width, 64), _round(height, 64)
     length = int(seconds * fps) + 1
     gs = round(min(1.0, 0.7 * strength), 4)
+    gs_end = gs if end_strength is None else round(min(1.0, 0.7 * end_strength), 4)
     g = _base(prompt, negative, fps, length, seed, prefix, audio)
     g["img1"] = {"class_type": "LoadImage", "inputs": {"image": "input.png"}}
     g["img2"] = {"class_type": "LoadImage", "inputs": {"image": "input.png"}}
@@ -161,7 +163,7 @@ def ltx_flf(prompt, *, width=768, height=448, seconds=3, fps=24, seed=0, audio=T
             g["pre_" + n] = {"class_type": "LTXVPreprocess", "inputs": {"image": ["fit_" + n, 0], "img_compression": 18}}
             g["guide_" + n] = {"class_type": "LTXVAddGuide", "inputs": {
                 "positive": pos, "negative": neg, "vae": ["vvae", 0], "latent": lat,
-                "image": ["pre_" + n, 0], "frame_idx": idx, "strength": gs}}
+                "image": ["pre_" + n, 0], "frame_idx": idx, "strength": gs if idx == 0 else gs_end}}
             pos, neg, lat = ["guide_" + n, 0], ["guide_" + n, 1], ["guide_" + n, 2]
         return pos, neg, lat
 

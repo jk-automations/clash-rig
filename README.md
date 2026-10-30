@@ -1,6 +1,37 @@
 # Clash Rig
 
-**Fight-scene cinematography for LTX-2.5: six fight styles, eleven arenas, fifteen camera rigs and hit-by-hit impact FX, with two identity refs that keep both fighters the same in every shot.**
+**Fight-scene cinematography for LTX-2.5, as two ComfyUI workflows on one engine: Clash Anime (over-the-top anime power fights) and Clash Real (boxing, MMA, Muay Thai, taekwondo, BJJ). Every shot is one move between a start frame and an end frame, so the hit lands and the fighters stay apart.**
+
+![Clash Anime: shockwave punch trade, crater slam, uppercut, beam finisher](docs/anime-paid.gif)
+
+*Clash Anime, keyframe mode. This reel used **paid Comfy API nodes**: Nano Banana 2 for the start and end stills, LTX-2.5 Pro (hosted) for the video. The same workflow runs on local open weights at lower quality (further down).*
+
+![Clash Real taekwondo: back kick, axe kick, spinning hook kick](docs/taekwondo-kf-v1.gif)
+
+*Clash Real taekwondo, keyframe mode, **open weights end to end on a Mac Studio**: Z-Image Turbo start frame, Qwen Image Edit 2511 end frame, LTX-2.5 22B first + last frame with audio.*
+
+![Clash Real boxing: jab-cross, slip, counter, knockout](docs/boxing-kf-v3.gif)
+
+*Clash Real boxing, keyframe mode, open weights end to end.*
+
+## Two workflows, one engine
+
+| | Clash Anime | Clash Real |
+|---|---|---|
+| Run | `python -m clashrig.anime` | `python -m clashrig.real` |
+| Fight styles | anime power fights (shockwave trades, aura power-ups, crater slams, launch uppercuts, energy-blast finishers) | boxing, MMA, Muay Thai, taekwondo, BJJ |
+| Default look | clean 2D cel anime | photoreal fight film |
+| ComfyUI workflow | `workflows/clash_anime_keyframe.json` | `workflows/clash_real_keyframe.json` |
+
+**Keyframe mode** (on by default for both): the rig writes a start-frame prompt (who is where, mid-move), Z-Image Turbo draws it, one Qwen Image Edit 2511 command turns it into the end frame (the hit has landed), and LTX-2.5 first + last frame animates between them with audio. Free-running image-to-video with a long combo prompt pulled two fighters into each other; one move per shot with a fixed landing fixed that. The end frame is a soft target (`--end-strength 0.5`) so the move has room to happen.
+
+## Which parts are open weights
+
+- **Open weights, local (default):** Z-Image Turbo, Qwen Image Edit 2511 + Lightning LoRA, LTX-2.5 22B distilled, their text encoders. Every Clash Real reel in this README.
+- **Optional closed, local CLI:** `--plate-backend codex` makes the stills with the Codex CLI.
+- **Paid Comfy API nodes (not in the default path):** the Clash Anime reel at the top used Nano Banana 2 stills and hosted LTX-2.5 Pro. Both are standard ComfyUI partner nodes; swap them into the keyframe workflow if you have Comfy credits.
+
+## Earlier renders (free-running image-to-video)
 
 ![Clash Rig plates on open weights: two fighter sheets and four plates of one fight](docs/local_plates.jpg)
 
@@ -18,7 +49,7 @@
 
 Higgsfield's pitch is controllable cinematic action: camera-move presets, a character that stays the same, and effects that sell the hit. Clash Rig rebuilds that for fights as open ComfyUI nodes:
 
-- **Fight styles with their own beats and sound design**: boxing, muay thai, MMA, BJJ, kung fu wuxia, and the flagship `anime_power` (energy auras, beam clashes, shockwave rings, crater impacts, levitating debris).
+- **Fight styles with their own beats and sound design**: boxing, muay thai, MMA, BJJ, taekwondo, kung fu wuxia, and `anime_power` (energy auras, beam clashes, shockwave rings, crater impacts, levitating debris).
 - **15 camera rigs**: ringside low angle, glove punch-cam, over-the-shoulder, impact crash zoom, bullet-time orbit, overhead, replay push-in, sky-high wide, debris cam, face close-up, shoulder cam, low-angle upshot, whip-pan profile, rival POV, drone dive.
 - **11 arenas** or your own text, 8 lights, 6 visual styles, an 8-shot fight arc per style.
 - **Impact FX** (`ClashFX`): hit flashes, camera shake with a jolt on every hit, chromatic punch, radial speed lines, anime impact frames, speed ramp. Frame count unchanged, so LTX audio stays in sync.
@@ -28,6 +59,7 @@ Higgsfield's pitch is controllable cinematic action: camera-move presets, a char
 
 | Node | What it does |
 |---|---|
+| `ClashAnimeRig` / `ClashRealRig` | the two workflow front ends: their own fight styles, looks and keyframe beats; same outputs as ClashRig plus the end-frame prompt |
 | `ClashRig` | fight style + hero + rival + arena + camera rig + beat -> first-frame prompt, LTX motion prompt, negatives, sizes, frames, seed, FX defaults |
 | `ClashRigBuilder` | your own rig: mount anchor, camera pitch, lens, mount stability |
 | `ClashFX` | hit flashes, shake, chromatic punch, speed lines, impact frames, speed ramp |
@@ -45,7 +77,9 @@ Higgsfield's pitch is controllable cinematic action: camera-move presets, a char
 | `clash_rig_reel` | Clash Reel: stitch saved shots (no model) | none |
 | `clash_rig_fight_codex` (optional, closed) | Clash Plate (Codex CLI) first frame -> LTX-2.5 -> Clash FX | gemma4-12b-with-proj-ltx-2.5-bf16, ltx-2.5-22b-distilled-transformer-bf16, ltx-2.5-audio-vae-bf16, ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0, ltx-2.5-video-vae-bf16 plus a Codex install |
 
-Set `shot_index` to *increment* and queue 8 runs for a full fight arc, then run the reel workflow.
+| `clash_anime_keyframe` / `clash_real_keyframe` (**keyframe mode**) | Clash Anime / Clash Real Rig -> Z-Image Turbo start frame -> Qwen Image Edit 2511 end frame -> LTX-2.5 first + last frame + audio -> Clash FX | ae, qwen_3_4b, z_image_turbo_bf16, qwen_image_edit_2511_bf16, qwen_2.5_vl_7b, qwen_image_vae, Lightning LoRA, the LTX-2.5 files |
+
+Set `shot_index` to *increment* and queue 6 (keyframe) or 8 runs for a full fight arc, then run the reel workflow.
 
 ## Models
 
@@ -113,6 +147,16 @@ API JSON to open it in ComfyUI), and a gallery of every run under `runs/`, inclu
 The default plate backend is `local`, open weights end to end:
 
 ```bash
+# Clash Real: a six-move taekwondo fight in a dojo (keyframe mode is on by default)
+.venv/bin/python -m clashrig.real --style-fight taekwondo --arena dojo --seed 7 --out runs/clash-real/tkd1
+
+# Clash Anime: a six-move anime power fight in the clean 2D look
+.venv/bin/python -m clashrig.anime --arena "floating sky islands" --seed 7 --out runs/clash-anime/fight1
+
+# re-roll shots 2 and 5 with new seeds (delete their clips first), drop shot 3 from the reel
+.venv/bin/python -m clashrig.real --style-fight boxing --reseed 2,5 --drop 3 --out runs/clash-real/box1
+
+# the original free-running CLI (all styles, image-to-video without an end frame)
 # eight-shot anime power fight on floating sky islands
 .venv/bin/python -m clashrig --style-fight anime_power --arena "floating sky islands" --shots 8 --seed 7 --out runs/clash-rig/fight1
 
@@ -141,7 +185,8 @@ The full model set is about 150 GB on disk, so this needs a machine with tens of
 - The open `local` plate path passes both fighter sheets to Qwen Image Edit in one edit. That is untested for fusing: in Velocity Rig the same trick merged two vehicles into one (so Velocity passes only the hero), and two people may or may not fare better. Check the contact sheet with `--plates-only` before spending LTX time.
 - Two fighters in one frame is hard for every image model; limbs tangle in close grapples.
 - Image-to-video drifts toward slow motion; the prompts and negatives push against it, and the replay and bullet-time rigs deliberately allow it.
-- The hero image above is from the optional Codex backend, not the open one; the open-weights contact sheet and reel are still to be added where marked.
+- Close-contact moves (clinches, body hooks in tight, BJJ on the mat) can still merge two bodies for a second. Check each reel and drop those shots (`--drop`).
+- Local anime on open weights reads as busy and over-glowed next to the paid-node anime reel; the clean 2D style helps, but the gap is real.
 - Sound is whatever LTX-2.5 generates for the prompt; impacts are plausible, not designed.
 - Fighters are original designs by construction (no real people, franchises or gear in the prompts). A photo upload puts that person in the fight: only use photos you have the right to use.
 - The web app is a local single-user tool that serializes jobs; the live node view depends on Comfy API v2 job events and is best-effort.
@@ -151,7 +196,7 @@ The full model set is about 150 GB on disk, so this needs a machine with tens of
 ```
 custom_nodes/comfyui-clash-rig/   the ComfyUI pack (symlink this)
 workflows/             UI + API JSON for every workflow
-clashrig/                 runner, Comfy SDK layer (comfy.py), graph builders (graphs/)
+clashrig/                 runner (python -m clashrig), Clash Anime (clashrig.anime), Clash Real (clashrig.real), Comfy SDK layer (comfy.py), graph builders (graphs/)
 app/                   FastAPI server + static web app
 ops/serve.sh           ComfyUI + comfy-api-proxy supervisor
 scripts/validate_workflows.py   offline workflow check against a /object_info snapshot

@@ -1,5 +1,7 @@
 """Clash Rig nodes for ComfyUI.
 
+Clash Anime Rig    over-the-top anime power fights (keyframe mode): start-frame prompt, end-frame edit, LTX motion prompt, FX
+Clash Real Rig     real-life fights: boxing, MMA, Muay Thai, taekwondo, BJJ (keyframe mode), same outputs
 Clash Rig          fight style + hero + rival + arena + camera rig -> first-frame prompt, LTX motion prompt, sizes, frames, seed, FX
 Clash Rig Builder  build your own camera rig: mount, pitch, lens, stability
 Clash Plate        optional off-GPU first frame via the Codex CLI (hero & rival reference images)
@@ -32,7 +34,7 @@ def _out(s):
 
 def _common(builder=False):
     req = {
-        "fight_style": (list(rigs.FIGHT_STYLES), {"default": "anime_power", "tooltip": "boxing, muay_thai, mma, bjj, kung_fu_wuxia or the anime_power flagship."}),
+        "fight_style": (list(rigs.FIGHT_STYLES), {"default": "anime_power", "tooltip": "boxing, muay_thai, mma, bjj, taekwondo, kung_fu_wuxia or the anime_power flagship."}),
         "style": (["auto"] + list(rigs.STYLES), {"default": "auto", "tooltip": "Visual style. auto = the fight style's own (photoreal; anime for anime_power)."}),
     }
     return req
@@ -81,6 +83,46 @@ class ClashRig:
         return _out(rigs.compose(hero=hero, rival=rival, arena=arena, rig=rig, fight_style=fight_style, style=style,
                                  arena_custom=arena_custom, light=light, beat=beat, intensity=intensity, shot_index=shot_index,
                                  seed=seed, aspect=aspect, seconds=seconds, extra=extra))
+
+
+def _line_node(line):
+    ln = rigs.LINES[line]
+
+    class _LineRig:
+        CATEGORY = CAT
+        FUNCTION = "run"
+        DESCRIPTION = (f"{ln['label']}: {ln['blurb']} Keyframe mode (on by default): every shot is one move between a start frame "
+                       "and an end frame (end_prompt = one image-edit command on the start frame), rendered with LTX-2.5 first+last frame, "
+                       "so strikes land and the fighters stay separate. 'auto (fight sequence)' walks the style's six-shot fight.")
+        RETURN_TYPES = RET_TYPES + ("STRING",)
+        RETURN_NAMES = RET_NAMES + ("end_prompt",)
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            req = {
+                "fight_style": (ln["fight_styles"], {"default": ln["fight_style"]}),
+                "style": (["auto"] + ln["styles"], {"default": "auto", "tooltip": f"Visual style. auto = {ln['style']}."}),
+                "rig": (RIG_CHOICES, {"default": "auto (fight sequence)", "tooltip": "Camera rig, or an auto mode."}),
+                "keyframes": ("BOOLEAN", {"default": True, "tooltip": "One move per shot between a start and an end frame (LTX first+last frame)."}),
+            }
+            req = _tail(req)
+            req["arena"] = (ln["arenas"] + ["custom"], {"default": ln["arena"]})
+            return {"required": req, "optional": dict(OPTIONAL)}
+
+        def run(self, fight_style, style, rig, keyframes, beat, arena, light, intensity, aspect, seconds, shot_index, seed,
+                hero="", rival="", arena_custom="", extra=""):
+            s = rigs.compose(hero=hero, rival=rival, arena=arena, rig=rig, fight_style=fight_style,
+                             style=rigs.line_style(line, fight_style, style), arena_custom=arena_custom, light=light, beat=beat,
+                             intensity=intensity, shot_index=shot_index, seed=seed, aspect=aspect, seconds=seconds, extra=extra,
+                             keyframes=keyframes)
+            return _out(s) + (s["end_prompt"],)
+
+    _LineRig.__name__ = f"Clash{line.title()}Rig"
+    return _LineRig
+
+
+ClashAnimeRig = _line_node("anime")
+ClashRealRig = _line_node("real")
 
 
 class ClashRigBuilder:
@@ -252,9 +294,10 @@ class ClashReel:
         return (VideoFromFile(str(dest)), "\n".join(c.name for c in clips))
 
 
-NODE_CLASS_MAPPINGS = {"ClashRig": ClashRig, "ClashRigBuilder": ClashRigBuilder, "ClashPlate": ClashPlate,
+NODE_CLASS_MAPPINGS = {"ClashAnimeRig": ClashAnimeRig, "ClashRealRig": ClashRealRig, "ClashRig": ClashRig, "ClashRigBuilder": ClashRigBuilder, "ClashPlate": ClashPlate,
                        "ClashRigList": ClashRigList, "ClashFX": ClashFX, "ClashReel": ClashReel}
 NODE_DISPLAY_NAME_MAPPINGS = {
+    "ClashAnimeRig": "Clash Anime Rig (anime power fights)", "ClashRealRig": "Clash Real Rig (boxing, MMA, Muay Thai, taekwondo, BJJ)",
     "ClashRig": "Clash Rig (preset rig)", "ClashRigBuilder": "Clash Rig Builder (custom mount & lens)",
     "ClashPlate": "Clash Plate (closed partner models, optional)", "ClashRigList": "Clash Rig Library",
     "ClashFX": "Clash FX (impact)", "ClashReel": "Clash Reel (stitch shots)",
